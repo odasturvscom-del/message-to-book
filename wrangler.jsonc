@@ -1,8 +1,5 @@
 {
   "name": "message-to-book",
   "compatibility_date": "2026-10-01",
-  "main": "worker.js",
-  "assets": {
-    "directory": "./public"
-  }
+  "main": "worker.js"
 }
