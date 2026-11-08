@@ -61,6 +61,7 @@
   <div id="preview"></div>
   <button id="downloadBtn" class="secondary" disabled>Download .docx</button>
 
+<script src="/docx.min.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let videos = [];
@@ -112,15 +113,55 @@ $('buildBtn').onclick = async () => {
   $('buildBtn').disabled = false;
 };
 
+function mdParagraphs(md, D) {
+  const out = [];
+  for (const rawLine of String(md || '').split(/\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) { out.push(new D.Paragraph({ text: '' })); continue; }
+    if (line.startsWith('### ')) out.push(new D.Paragraph({ text: line.slice(4), heading: D.HeadingLevel.HEADING_3 }));
+    else if (line.startsWith('## ') || line.startsWith('# ')) out.push(new D.Paragraph({ text: line.replace(/^#+ /, ''), heading: D.HeadingLevel.HEADING_2 }));
+    else {
+      const runs = line.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map(seg =>
+        seg.startsWith('**') ? new D.TextRun({ text: seg.slice(2, -2), bold: true }) : new D.TextRun(seg));
+      out.push(new D.Paragraph({ children: runs, spacing: { after: 160 } }));
+    }
+  }
+  return out;
+}
+
 $('downloadBtn').onclick = async () => {
   if (!book) return;
-  const r = await fetch('/api/docx', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ book }) });
-  if (!r.ok) { $('status').textContent = 'Download failed.'; $('status').className = 'status err'; return; }
-  const blob = await r.blob();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = book.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '.docx';
-  a.click();
+  $('status').textContent = 'Building the Word file...'; $('status').className = 'status';
+  try {
+    const D = window.docx;
+    const children = [];
+    children.push(new D.Paragraph({ text: book.title || 'Untitled Book', heading: D.HeadingLevel.TITLE, alignment: D.AlignmentType.CENTER, spacing: { before: 3200, after: 400 } }));
+    if (book.author) children.push(new D.Paragraph({ text: book.author, alignment: D.AlignmentType.CENTER }));
+    children.push(new D.Paragraph({ children: [new D.PageBreak()] }));
+    children.push(new D.Paragraph({ text: 'Contents', heading: D.HeadingLevel.HEADING_1 }));
+    book.chapters.forEach((c, i) => children.push(new D.Paragraph({ text: (i + 1) + '. ' + c.title, spacing: { after: 80 } })));
+    children.push(new D.Paragraph({ children: [new D.PageBreak()] }));
+    if (book.preface) {
+      children.push(new D.Paragraph({ text: 'Preface', heading: D.HeadingLevel.HEADING_1 }));
+      children.push(...mdParagraphs(book.preface, D));
+      children.push(new D.Paragraph({ children: [new D.PageBreak()] }));
+    }
+    book.chapters.forEach((c, i) => {
+      children.push(new D.Paragraph({ text: 'Chapter ' + (i + 1) + ': ' + c.title, heading: D.HeadingLevel.HEADING_1 }));
+      if (c.sourceVideo) children.push(new D.Paragraph({ children: [new D.TextRun({ text: 'Source message: https://www.youtube.com/watch?v=' + c.sourceVideo, italics: true, size: 18, color: '666666' })], spacing: { after: 240 } }));
+      children.push(...mdParagraphs(c.body, D));
+      children.push(new D.Paragraph({ children: [new D.PageBreak()] }));
+    });
+    const doc = new D.Document({ sections: [{ properties: {}, children }] });
+    const blob = await D.Packer.toBlob(doc);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = book.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '.docx';
+    a.click();
+    $('status').textContent = 'Downloaded.';
+  } catch (e) {
+    $('status').textContent = 'Download failed: ' + e.message; $('status').className = 'status err';
+  }
 };
 </script>
 </body>

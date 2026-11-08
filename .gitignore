@@ -1,4 +1,5 @@
 node_modules/
+.wrangler/
 .env
 *.docx
-sample-*.docx
+!sample-book.docx
