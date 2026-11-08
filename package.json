@@ -1,0 +1,17 @@
+{
+  "name": "message-to-book",
+  "version": "0.1.0",
+  "description": "Turn YouTube messages (sermons, talks) into books: pick videos, pull transcripts, restructure with a template, export docx",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "docx": "^9.0.2",
+    "express": "^4.21.0",
+    "youtube-transcript": "^1.2.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

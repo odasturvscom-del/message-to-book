@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Message to Book</title>
+<style>
+  :root { --ink:#1c1c1e; --line:#e2e2e6; --accent:#1a73e8; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:var(--ink); max-width:820px; margin:0 auto; padding:32px 20px 80px; background:#fafafa; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  .sub { color:#666; margin:0 0 28px; }
+  label { display:block; font-size:13px; font-weight:600; margin:16px 0 6px; }
+  textarea, input, select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; }
+  textarea { min-height:90px; resize:vertical; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:11px 20px; font:inherit; font-weight:600; cursor:pointer; margin-top:16px; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.secondary { background:#fff; color:var(--ink); border:1px solid var(--line); }
+  .videos { border:1px solid var(--line); border-radius:8px; background:#fff; margin-top:10px; max-height:340px; overflow:auto; }
+  .videos label.item { display:flex; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); font-weight:400; font-size:14px; margin:0; align-items:flex-start; cursor:pointer; }
+  .videos label.item:last-child { border-bottom:0; }
+  .videos .meta { color:#888; font-size:12px; }
+  .status { margin-top:14px; font-size:14px; color:#555; }
+  .status.err { color:#c0392b; }
+  .preview { border:1px solid var(--line); border-radius:8px; background:#fff; padding:18px 20px; margin-top:10px; }
+  .preview h3 { margin:14px 0 4px; font-size:15px; }
+  .preview .wordcount { color:#888; font-size:12px; font-weight:400; }
+  .preview .bad { color:#c0392b; font-size:13px; }
+  .hint { font-size:12px; color:#888; margin-top:4px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; margin-top:22px; padding:0 18px 6px; background:#fff; }
+  legend { font-weight:700; font-size:14px; padding:0 6px; }
+</style>
+</head>
+<body>
+  <h1>Message to Book</h1>
+  <p class="sub">Pick YouTube messages, pull the transcripts, and turn them into a book.</p>
+
+  <label for="input">Videos or channel</label>
+  <textarea id="input" placeholder="Paste video links (one per line), a channel URL or @handle"></textarea>
+  <div class="hint">A channel gives you its 15 most recent uploads; paste links for anything older.</div>
+  <button id="fetchBtn">Find videos</button>
+  <div id="videoList"></div>
+
+  <fieldset>
+    <legend>Book template</legend>
+    <label for="bookTitle">Book title</label>
+    <input id="bookTitle" placeholder="Leave blank and the AI names the book">
+    <label for="author">Author</label>
+    <input id="author" placeholder="Author name for the title page">
+    <label for="editing">Editing level</label>
+    <select id="editing">
+      <option value="tidy">Tidy (light cleanup, keeps the spoken voice)</option>
+      <option value="rewritten">Rewritten (full book prose)</option>
+    </select>
+    <label for="preface">Preface</label>
+    <textarea id="preface" placeholder="Leave blank and the AI writes one"></textarea>
+  </fieldset>
+
+  <button id="buildBtn" disabled>Build book</button>
+  <div id="status"></div>
+  <div id="preview"></div>
+  <button id="downloadBtn" class="secondary" disabled>Download .docx</button>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let videos = [];
+let book = null;
+
+$('fetchBtn').onclick = async () => {
+  $('fetchBtn').disabled = true;
+  $('status').textContent = 'Looking up videos...'; $('status').className = 'status';
+  try {
+    const r = await fetch('/api/videos', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ input: $('input').value }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Lookup failed');
+    videos = j.videos;
+    $('videoList').innerHTML = '<div class="videos">' + videos.map((v, i) =>
+      `<label class="item"><input type="checkbox" checked data-i="${i}"><span><div>${v.title || v.videoId}</div><div class="meta">${v.published ? v.published.slice(0,10) + ' · ' : ''}${v.videoId}</div></span></label>`
+    ).join('') + '</div>';
+    $('buildBtn').disabled = false;
+    $('status').textContent = videos.length + ' videos found. Select the ones for the book.';
+  } catch (e) {
+    $('status').textContent = e.message; $('status').className = 'status err';
+  }
+  $('fetchBtn').disabled = false;
+};
+
+$('buildBtn').onclick = async () => {
+  const selected = [...document.querySelectorAll('#videoList input:checked')].map(el => videos[el.dataset.i]);
+  if (!selected.length) { $('status').textContent = 'Select at least one video.'; $('status').className = 'status err'; return; }
+  $('buildBtn').disabled = true; $('downloadBtn').disabled = true;
+  $('status').textContent = 'Fetching transcripts and building the book. This can take a few minutes for long messages...'; $('status').className = 'status';
+  try {
+    const r = await fetch('/api/book', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ videos: selected, template: { bookTitle: $('bookTitle').value, author: $('author').value, editing: $('editing').value, preface: $('preface').value } }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Build failed');
+    book = j.book;
+    const failed = j.sources.filter(s => !s.ok);
+    $('preview').innerHTML =
+      '<div class="preview"><strong>' + book.title + '</strong>' + (book.author ? ' · ' + book.author : '') +
+      (book.aiUsed ? '' : '<div class="hint">Built without AI cleanup: add an Anthropic API key in .env for full book writing.</div>') +
+      (book.preface ? '<h3>Preface</h3><p style="font-size:13px;color:#555">' + book.preface.slice(0, 300) + (book.preface.length > 300 ? '...' : '') + '</p>' : '') +
+      '<h3>' + book.chapters.length + ' chapters</h3>' +
+      book.chapters.map(c => '<div style="font-size:13px;margin:6px 0">' + c.title + ' <span class="wordcount">' + (c.body.split(/\s+/).length) + ' words</span></div>').join('') +
+      (failed.length ? '<h3 class="bad">' + failed.length + ' video(s) had no transcript</h3>' + failed.map(s => '<div class="bad">' + (s.title || s.videoId) + ': ' + s.error + '</div>').join('') : '') +
+      '</div>';
+    $('downloadBtn').disabled = false;
+    $('status').textContent = 'Book ready.';
+  } catch (e) {
+    $('status').textContent = e.message; $('status').className = 'status err';
+  }
+  $('buildBtn').disabled = false;
+};
+
+$('downloadBtn').onclick = async () => {
+  if (!book) return;
+  const r = await fetch('/api/docx', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ book }) });
+  if (!r.ok) { $('status').textContent = 'Download failed.'; $('status').className = 'status err'; return; }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = book.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '.docx';
+  a.click();
+};
+</script>
+</body>
+</html>
